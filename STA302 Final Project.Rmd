@@ -1,0 +1,208 @@
+---
+title: "STA302 Final Project"
+author: "Guanlin Chen"
+date: "10/1/2023"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Step1: Data Cleaning
+Notes: The price in this dataset is in Chinese Yuan (CNY) where 5 Canadian Dollar (CAD) exchanges for 1 CNY.
+```{r, warning = FALSE, echo=FALSE}
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(stringr)
+df <- read_csv("new.csv")
+df$floor <- as.numeric(str_extract(df$floor, "[0-9.]+")) # this line eliminate the Chinese character which does not affect the "floor" number in this column.
+df$constructionTime <- as.numeric(df$constructionTime)
+df <- df %>% filter(year(tradeTime) == 2017) %>% na.omit(df) %>% filter (constructionTime != "δ֪")# we only focus on house traded in 2017
+
+df <- subset(df, square >= 130) # we only investigate medium-to-large size houses in Beijing
+df <- df %>% mutate(construction_years = 2017 - constructionTime, Lat_diff = Lat - 39.56) #calculate years since construction until 2017 and difference between the city center latitude and house location latitude.
+df <- subset(df, select = c(Lat_diff, DOM, followers, price, square, floor, renovationCondition, subway, construction_years, communityAverage, elevator)) #here are the interested variables, you may choose other combinations to produce the optimal solution.
+summary(df)
+```
+
+Step2 Set up Model 
+```{r}
+model <- lm(df$price ~ df$Lat_diff + df$DOM + df$followers + df$communityAverage + df$construction_years + df$square + df$floor + df$elevator+ df$floor:df$elevator)
+#df$renovationCondition + 
+model
+summary(model)
+```
+
+$$y = \beta_0 + \beta_1x_1 +\beta_2x_3 +\beta_3x_3+\beta_4x_4+\beta_5x_5+\beta_6x_6+\beta_7x_7+\beta_8I_{elevator}+\beta_9I_{elevator}*x_7+\epsilon$$
+
+Step 2 Set up the ANOVA test of overall significance for predictors.
+From the summary of model, we see a very small p-value of 2.2e-16 for our F-statistic, so by ANOVA test we may conclude that there is a significant linear relationship with the response price for at least one predictor.
+
+Step 2 do some data exploration using plots to see any patterns
+```{r}
+
+#data exploration
+library(ggplot2)
+
+# 1-1.interaction term exploration for followers:renovationCondition (a scatter plot)
+# different predictors may have interaction on each other, draw this interaction plot to see any potential interaction, if the slopes of lines are obviously different then try to consider an interaction term in your model.
+# you may want to set a baseline/reference level for your interaction term.
+p <- ggplot(df, aes(x=df$DOM, y=df$price, color=df$renovationCondition, group = df$renovationCondition)) +  # Set variables and differentiate lines by factor 'renovationCondition'
+  geom_point() +  # Add points
+  geom_smooth(method="lm", se=FALSE) +  # Add lines for each group (no shading     for confidence interval)
+  labs(title="Interaction Plot", x="followers", y="price per square")
+p
+#interpretation:you notice that the interaction plot has category lines in diff slopes, so there is some impact of renovation condition on followers and thus affect price.
+
+#1-2.interaction term for 
+p <- ggplot(df, aes(x=df$floor, y=df$price, color=df$elevator, group = df$elevator)) +
+  geom_point() +
+  geom_smooth(method="lm", se=FALSE) +  
+  labs(title="Interaction Plot", y="price per square")
+p
+
+# a histogram of response price
+df %>% ggplot(aes(x = price)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Histogram of price per square in CNY", x = "price per square", y = "Frequency")
+
+# a histogram of latitude difference
+df %>% ggplot(aes(x = Lat_diff)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Histogram of Latitude Difference", x = "Latitudes", y = "Frequency")
+
+#a histogram of construction years
+df %>% ggplot(aes(x = construction_years)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Histogram of Construction Years", x = "construction Time in years", y = "Frequency")
+
+# 2.for interested predictors (examines linearity, constant variance by observing the feature such as skewness/spread...), uncomment them and replace with variables names.
+
+#draw a histogram of predictor
+#ggplot(data, aes(x = value)) + 
+  #geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  #theme_minimal() +
+  #labs(title = "Histogram of 'value'", x = "Value", y = "Frequency")
+
+# draw a boxplot of predictors
+#ggplot(data, aes(x = category, y = value, fill = category)) +
+  #geom_boxplot() +
+  #theme_minimal() +
+  #labs(title = "Boxplot of 'value' by 'category'", x = "Category", y = "Value")
+
+# draw a scatterplot of predictor vs response
+#ggplot(data, aes(x = xvalue, y = yvalue)) +
+  #geom_point(aes(color = category)) + 
+  #theme_minimal() +
+  #labs(title = "Scatterplot of 'yvalue' vs 'xvalue'", x = "X Value", y = "Y Value")
+```
+
+Step 3 Assumptions Checking by residual plots
+```{r}
+#residual vs fitted
+y_hat <- fitted(model)
+e_hat <- resid(model)
+plot(x =  y_hat, y = e_hat, main="Figure1. Residual vs Fitted", xlab="Fitted values of price per square",ylab="Residuals")
+
+# residual vs construction year
+plot(x = df$construction_years, y = e_hat, main="Figure 2.Residual vs years of construction",
+     xlab="construction year", ylab="Residual")
+# residual vs other predictors
+plot(x = df$Lat_diff, y = e_hat, main="Figure 2.Residual vs Latitude Difference",
+     xlab="Latitude Difference", ylab="Residual")
+
+plot(x = df$DOM, y = e_hat, main="Figure 2.Residual vs Active Days on Market",
+     xlab="Active Days on Market", ylab="Residual")
+
+plot(x = df$followers, y = e_hat, main="Figure 2.Residual vs Number of Followers", xlab="Number of Followers", ylab="Residual")
+
+plot(x = df$communityAverage, y = e_hat, main="Figure 2.Residual vs Average Community House Price", xlab="Average Community House Price in CNY", ylab="Residual")
+
+plot(x = df$square, y = e_hat, main="Figure 2.Residual vs Square", xlab="Square in meter", ylab="Residual")
+
+# response vs fitted (check Condition1)
+plot(x =  y_hat , y = df$price   , main="",
+     xlab="Fitted values", ylab="price per square")
+abline(a = 0, b = 1, lty=2)
+
+# QQ plot
+qqnorm(e_hat, main = "Normal Q-Q Plot")
+qqline(e_hat)
+
+#pairwise scatterplots between predictors (check Condition 2)
+pairs(df[, c(2:11)], )
+
+```
+
+Step 4 Box-cox Transformation
+```{r}
+# Model fix using box-cox power/log transformation
+# access the function
+packageurl <- "https://cran.r-project.org/src/contrib/Archive/pbkrtest/pbkrtest_0.4-4.tar.gz"
+install.packages(packageurl, repos=NULL, type="source")
+install.packages("car", dependencies=TRUE)
+library(car)
+## Loading required package: carData
+# input the model into boxCox
+# transformation on reponse price only
+boxCox(model)
+
+# input the predictor columns
+# notice we can ONLY apply transformation on numerical variables > 0, you cannot do transformation for categorical variables.
+trans <- powerTransform(cbind(df[,c(3,6,7,10,11)]))
+summary(trans)
+
+#now you may apply power transformation on these variables and fit a new transformed model, see Module4+5 Worksheet.
+#However, when you see values of Rounded Pwr Wald with a quite large value larger than 2 or smaller than -2, do not apply this power transformation. When you get 0 of Rounded Pwr Walf, try log(x).
+
+
+```
+
+Step 5 Fit the new transformed model and RE-DO Step 3 to see any assumptions violated.
+```{r}
+df$price2 <- (df$price)^(1/2)
+df$Lat_diff2 <- (df$Lat_diff)^(1/2)
+df$DOM4 <- (df$DOM)^(1/4)
+df$communityAverage3 <- (df$communityAverage)^(-1/2)
+df$floor3 <- (df$floor)^(1/3)
+#transformed_model <- lm(df$price ~ (df$predictor)^power)
+```
+
+
+Step 6 Deal with constant variance with Response price:
+Using the variance stablizing transformation. Treat your newly fitted model as a function of f(y),if you see any violation of constant variance such as the fanning pattern in residual plots then transform `df$price` into `log(df$price)` or `(df$price)^power ` for the model.
+
+```{r}
+var_stablized_model <- lm(df$price2 ~  df$Lat_diff2 + df$DOM4 + df$followers + df$communityAverage3 + df$square + df$floor3 + df$renovationCondition + df$elevator + df$construction_years + df$floor3:df$elevator)
+summary(var_stablized_model)
+
+#recheck my variance stablized transformation 
+y_hat_tran <- fitted(var_stablized_model)
+e_hat_tran <- resid(var_stablized_model)
+plot(x =  y_hat_tran, y = e_hat_tran, main="Figure1. Residual vs Fitted", xlab="Fitted values of price per square",ylab="Residuals")
+
+qqnorm(e_hat_tran, main = "Normal Q-Q Plot")
+qqline(e_hat_tran)
+```
+
+
+Step 7 Partial T-test to deal with a reduced model for removing any non-significant predictors. If you output a relatively large p-value compared to a = 0.05, which means there is no significant linear relationship between the price per square and either one of the non-significant predictors. So these predictors can be removed and form a new model.
+```{r}
+reduced_model <- lm(df$price2 ~ df$Lat_diff2 + df$followers + df$communityAverage3 + df$square + df$floor3 + df$construction_years)
+anova(reduced_model, var_stablized_model)
+# based on the output below, the p-value of F is 0.08 > 0.05 which fails to reject the null, so the other 3 non-significant predictors: DOM, subways, and followers:renovationCondition can be removed from the model.
+```
+Notes for sample Step 6-7: I only consider a 1/2 transformation on the price per square since the distribution of it is right skewed as shown by the histogram above, and I transformed 3 predictors in power in step 5. From the new residual vs fitted scatterplot, we do not see much difference.
+
+Step 8 If you have more time, please go to search some literature about your model. You may use different libraries/database.
+
+
+$$H_0: \beta_{j} = 0 \ vs \ H_a: \beta_{j} \neq0\ for\ j = 1...9$$
+
+
+$$H_0: \beta_1,...,\beta_9 = 0\ vs\ H_a: \beta_1,...,\beta_9 \neq 0$$
+
+$$H_0: \beta$$
