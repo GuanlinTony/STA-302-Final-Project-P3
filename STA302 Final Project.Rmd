@@ -14,7 +14,7 @@ library(tidyverse)
 library(readr)
 library(dplyr)
 library(stringr)
-df <- read_csv("new.csv")
+df <- read_csv("Beijinghousing dataset original.csv")
 df$floor <- as.numeric(str_extract(df$floor, "[0-9.]+")) # this line eliminate the Chinese character which does not affect the "floor" number in this column.
 df$constructionTime <- as.numeric(df$constructionTime)
 df <- df %>% filter(year(tradeTime) == 2017) %>% na.omit(df) %>% filter (constructionTime != "δ֪")# we only focus on house traded in 2017
@@ -198,11 +198,3 @@ anova(reduced_model, var_stablized_model)
 Notes for sample Step 6-7: I only consider a 1/2 transformation on the price per square since the distribution of it is right skewed as shown by the histogram above, and I transformed 3 predictors in power in step 5. From the new residual vs fitted scatterplot, we do not see much difference.
 
 Step 8 If you have more time, please go to search some literature about your model. You may use different libraries/database.
-
-
-$$H_0: \beta_{j} = 0 \ vs \ H_a: \beta_{j} \neq0\ for\ j = 1...9$$
-
-
-$$H_0: \beta_1,...,\beta_9 = 0\ vs\ H_a: \beta_1,...,\beta_9 \neq 0$$
-
-$$H_0: \beta$$
