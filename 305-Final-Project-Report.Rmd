@@ -1,0 +1,140 @@
+---
+title: "STA305 Project Report"
+author: "Guanlin (Tony) Chen  \\  ID. 1007822260  \\ Statistics" 
+date: "March 29, 2024"
+output: pdf_document
+df_print: paged
+subtitle: Influences of Food Type, Time and Storage States on Eating Behavior of Parrots
+fontsize: 10pt
+---
+
+```{r}
+library(knitr)
+install.packages("kableExtra")
+library(kableExtra)
+# knitr::opts_chunk$set(fig.width=6, fig.height=4) 
+
+```
+
+## Introduction
+Eating behavior is a foraging action that animals indicate their preference of food under different factors. I designed a homemade $2^3$ factorial experiment to investigate whether the factors, Food type (F), Time (duration T) of the experiment lasting, and the state of food Storage (S) influence the number of times the pet parrots eat (E) the food, and what relationship can be concluded from the effect model. The experiment findings can provide inference about how these three factors contribute to the selection of food for the parrots.
+
+## Materials and Methods
+
+**Subjects and Variables**
+The experiment is inspired by the study conducted by Clayton and Dickinson (1984), which investigates how the types of food, duration of experiment, and whether or not food is replenished or degraded by experimenters can affect the inspections of scrub jays (a kind of bird) to reveal the food preference between protein and non-protein. However, in this experiment, the interested response is the direct eating behavior measured by the number of eats rather than the inspecting (looking closely) behavior. The experiment sample was recruited from 8 pet parrots in which 4 of them are raised by me and the other are raised by my friend. The response variable is the number of eats. There are 2 types of food including worm and peanuts, 2 levels of time duration for the pet parrots to eat the given food. (5 minutes vs. 20 minutes), and 2 types of food storage states (either replenished by adding new food of same type, or food was degraded by removing existed food of same type.).
+
+**Procedure**
+Each 8 of the parrots was assigned to different combinations of factor as shown in Table 3. For example, for the first parrot with *F= +1, T = +1, S = +1* combination, we provided the worms and add (replenish) with new worms during about the half way of the 20-minute duration. To make the time be consistent, the combinations with 5-minute factor were conducted simultaneously, and then the combinations with 20-minute factor. Moreover, I was responsible for counting the number of eats by hand in the 20-minute combinations when the parrots ate the food, and the 5-minute combinations recorded by my friend. Furthermore, we conducted another 8 replicate runs on the next day by repeating the same factor combinations with the parrots, and obtained 8 more results of eating.
+
+```{r, fig.height = 3, fig.width = 4}
+
+# Factor Table
+Factors <- c("Food", "Time", "Storage")
+Level1 <- c("Peanut", "5 Min", "Degrade")
+Level2 <- c("Worm", "20 Min", "Replenish")
+factor_info <- data.frame(Factors, Level1, Level2)
+knitr::kable(factor_info, caption = "Factorial Design Information")
+
+
+```
+\newpage
+**Statistical Analysis**
+The collected data is used to build up the linear regression model below.
+$$y_i = \beta_0 + \beta_1x_{i1} + \beta_2x_{i2} + \beta_3x_{i3} + \beta_4x_{i1}x_{i2}+ \beta_5x_{i1}x_{i3}+ \beta_6x_{i2}x_{i3}+ \beta_7x_{i1}x_{i2}x_{i3} + \epsilon_i$$
+where $y_i$ is the number of eating on food by each bird in the experiment, $x_{i1}$ = +1 if Food is worm, = -1 if Food is peanut; $x_{i2}$ = +1 if Time is 20 minutes, = -1 if Time is 5 minutes; $x_{i3}$ = +1 if Storage is in the Replenish pattern, = -1 if Storage is in the Degrade pattern. I also examined the significance of main effects and interaction effects on the number of eats by using a T-test for estimated coefficients $\hat{\beta}$ in the fitted model, with the hypotheses $H_0: \beta_i = 0 \ vs. \ H_a: \beta_i \neq 0$ and test statistic $t_0=\frac{effect}{se(effect)}$ ~ $t_{16}$. Furthermore, to evaluate the significance of different effects on the eats, 95% Confidence Interval (CI): $effect \pm t_{16,0.025}\ se(effect)$ for each effect is constructed to see whether the effect is significantly not zero.
+
+Table 2 below shows the full factorial design with 16 observations and their factorial combinations.
+
+```{r, fig.align='left'}
+
+# Fit the interaction model
+eat <- read.csv("Eating Behaviour of Parrots.csv")
+# knitr::kable(inspection, caption = "Factorial Design with 2 Replications")
+
+model<-lm(Eat~Food*Time*Storage, data=eat)
+coef<-summary(model)$coefficients
+
+#anova(model)
+
+# Show the factorial design with interaction terms
+mat <- model.matrix(model)
+full_mat <- cbind(mat[1:16, 2:8], eat$Eat)
+# mat
+
+knitr::kable(full_mat,col.names = c("F", "T", "S", "F:T", "F:S", "T:S", "F:T:S", "E"),caption = "Factorial Design with Replication")
+```
+
+## Results and Discussion
+**Results**   Firstly, the following interaction plots shows that any combinations of two factors are interacted with each other because the lines of +1 level and -1 level intersect each other, in which the interaction between Food type and Time is most severe with the largest intersection angle. In this case, the influence of Food type on eats may be significantly influenced by the Time duration.
+
+```{r, fig.height=3}
+# Interaction Plot
+# library(gridExtra)
+
+par(mfrow=c(1,3))
+plot1<- interaction.plot(eat$Food, eat$Time, eat$Eat, trace.label = "Time", xlab = "Food", ylab = "Mean of Eats")
+
+plot2<- interaction.plot(eat$Food, eat$Storage, eat$Eat, trace.label = "Storage", xlab = "Food", ylab = "Mean of Eats")
+
+plot3<- interaction.plot(eat$Time, eat$Storage, eat$Eat, trace.label = "Storage", xlab = "Time", ylab = "Mean of Eats")
+# grid.arrange(plot1, plot2, plot3)
+
+```
+
+To examine the effects, Table 3 shows the model summary and Table 4 lists the estimated main effects and interaction effects of all factor combinations contributing to the number of parrots' eats. According to the main effects, the p-value for the estimated coefficient of Food type is substantially smaller than $\alpha = 0.05$, so we can reject the $H_0$ and significantly conclude that providing parrots with worms can affect the number of eats increasing by 2.875 in average. Moreover, the p-value for the estimated coefficient of Time is also smaller than 0.05, so we can conclude that leaving more time for parrots to choose whether to eat can decrease the number of eats by 0.875 in average. However, the interaction between Food type and Time is significant as indicated by the comparable small p-value to 0.05, which corresponds to the previous interaction plot that there is a steeper increase in eating when parrots are provided with worm at a shorter Time duration. Therefore, it is expected that if the time duration changes from 5-minute to 20-minute then the parrots which were provided with worms would likely to reduce their number of eats by 2.125. Finally, whether replenishing or degrading the food Storage seems not significantly affect the eating behavior since the p-values for the main effect and its interactions of Storage are all larger than 0.05.
+
+```{r,fig.align='left'}
+knitr::kable(round(coef,3),caption = "Model Summary")
+```
+
+Note that the estimated effects of each factor combinations are calculated by 2 times the corresponding estimated coefficient in the model. Besides, The standard error for all estimated factorial effects is constant, which is $se(effect) = 2\ se(coefficient)$ = 2*0.165 = 0.33, so the estimated variance of effects is $0.33^2 = 0.1089$ that indicates a small variation of effects.
+```{r}
+# Main Effects and Interation Effects
+# model$coefficients
+eff <- 2* model$coefficients
+
+knitr::kable(eff, col.names = c("Effects"), caption = "Effects")
+```
+
+Apart from the model, Table 5 shows that the $95\%$ CIs of Food type effect (2.11,3.64) and the interaction effect with Time (-2.89,-1.36) do not include or closely include 0, so the Food type and its interaction with Time influence the change in the number of eats significantly.  
+
+```{r}
+# Confidence Interval to test the significance of effects
+CI <- 2*confint.lm(model)
+
+knitr::kable(round(CI,2), col.names = c("Low", "Up"),caption = "Confidence Intervals of Effects")
+
+```
+Last but not least, the cube plot demonstrates the contribution of different factor combination effects to parrots' eats. In addition, since about 4 observation points at the upright and left-bottom in the Normal Q-Q plot deviate at some degree from the straight line though most points are close to the line, the normality assumption of the model may not be fully validated. Additionally, the residual plot shows that the residual about symmetrically distributed around 0 with no increasing or decreasing patterns of variation, so homoscedasticity can be hold.
+
+```{r, fig.align='left', fig.height = 2.7}
+# Visualizing and Validating Model by Cube Plot,  Normal QQ plot and Residual Plots
+install.packages("FrF2")
+library(FrF2)
+library(lattice)
+par(mfrow=c(1, 3), col = "darkgrey")
+# cube plot
+cubePlot(model, "Food", "Time", "Storage", main = "Cube plot for Eating Bahviour of Parrots", cex.title = 0.7)
+
+
+# Normal Q-Q Plot
+install.packages("car")
+library(car)
+
+# qqPlot(model$residuals, xlab = "quantiles", ylab = "Residuals")
+qqnorm(model$residuals)
+qqline(model$residuals)
+# Residual Plot
+plot(model$fitted.values, model$residuals, main="Residuals vs. Fitted", xlab = "Fitted", ylab = "Residuals", pch=20)
+abline(h=0, lty=2)
+```
+**Discussion**
+    I completed an experiment to explore how the type of food, time duration, and state of food storage affect the eating behavior of parrots using a $2^3$ factorial design with additional replication. 
+
+The results infer that both the food type, time duration and their interaction influence the eating times of parrots significantly and food type has a stronger significance, but the whether or not adding or removing food of the same type during the trials does not influence much of the eating behavior. Moreover, the interaction between the food and time is a necessary consideration as parrots seem to prefer worms that are not placed for a longer period of time (20 minutes), which may because parrots are inclined to take nutrition of protein from fresh worms.
+
+There are some limitations of this experiment.Firstly, the normality assumption of the effect model is not well satisfied, which may reduce the accuracy of significance analysis and confidence intervals. Moreover, the replicate runs were conducted within the same parrots, so this might lead to learning bias that the parrots change their behaviors of eating based on their memory of the initial runs.
+
+## References
+Clayton, N. S., & Dickinson, A. (1998). Episodic-like memory during cache recovery by scrub jays. *Nature*, 395(6699), 272–274. https://doi.org/10.1038/26216
