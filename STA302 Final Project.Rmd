@@ -1,45 +1,76 @@
 ---
 title: "STA302 Final Project"
-author: "Guanlin Chen"
-date: "10/1/2023"
+author: "Group 120"
+date: "12/6/2023"
 output:
   pdf_document: default
   html_document: default
 ---
 
-Step1: Data Cleaning
+##Step1: Data Cleaning
+
 Notes: The price in this dataset is in Chinese Yuan (CNY) where 5 Canadian Dollar (CAD) exchanges for 1 CNY.
 ```{r, warning = FALSE, echo=FALSE}
 library(tidyverse)
 library(readr)
 library(dplyr)
 library(stringr)
-df <- read_csv("Beijinghousing dataset original.csv")
-df$floor <- as.numeric(str_extract(df$floor, "[0-9.]+")) # this line eliminate the Chinese character which does not affect the "floor" number in this column.
+library(gridExtra)
+#df_2 <- read_csv("new.csv")
+#summary(df_2)
+
+
+df <- read_csv("new.csv")
+df$floor <- as.numeric(str_extract(df$floor, "[0-9.]+")) # this line eliminates the Chinese character which does not affect the "floor" number in this column.
 df$constructionTime <- as.numeric(df$constructionTime)
+
+df$subway <- as.factor(df$subway)
+df$elevator <- as.factor(df$elevator)
 df <- df %>% filter(year(tradeTime) == 2017) %>% na.omit(df) %>% filter (constructionTime != "δ֪")# we only focus on house traded in 2017
 
 df <- subset(df, square >= 130) # we only investigate medium-to-large size houses in Beijing
-df <- df %>% mutate(construction_years = 2017 - constructionTime, Lat_diff = Lat - 39.56) #calculate years since construction until 2017 and difference between the city center latitude and house location latitude.
-df <- subset(df, select = c(Lat_diff, DOM, followers, price, square, floor, renovationCondition, subway, construction_years, communityAverage, elevator)) #here are the interested variables, you may choose other combinations to produce the optimal solution.
-summary(df)
+df <- df %>% mutate(HouseAge = 2017 - constructionTime, Lat_diff = Lat - 39.56) #calculate years since construction until 2017 and difference between the city center latitude and house location latitude.
+
+#followers has 0 number, which means some houses not followed by people.
+
+subset <- subset(df, select = c(Lat_diff, DOM, followers, price, square, floor, subway, HouseAge, communityAverage, elevator)) #here are the interested variables, you may choose other combinations to produce the optimal solution.
+
+write.table(subset, "cleaned new.csv", sep = ",", row.names = FALSE)
+#split subset into train (n=1811) and test (n=1812)
+set.seed(2000)
+s <- sample(1:nrow(subset), 1811, replace = FALSE)
+train <- subset[s,]
+test <- subset[-s,] 
+
+
+summary(subset)
+#summary(train)
+#summary(test)
+
+#summarize of standard deviation
+subset %>% summarise(sd_lat_diff = sd(Lat_diff), sd_DOM = sd(DOM), sd_followers = sd(followers), sd_price = sd(price), sd_square = sd(square), sd_floor = sd(floor), sd_HouseAge = sd(HouseAge), sd_communityAverage = sd(communityAverage))
 ```
 
-Step2 Set up Model 
-```{r}
-model <- lm(df$price ~ df$Lat_diff + df$DOM + df$followers + df$communityAverage + df$construction_years + df$square + df$floor + df$elevator+ df$floor:df$elevator)
-#df$renovationCondition + 
-model
-summary(model)
+## Step2 Set up Model 
+
+```{r,}
+model1 <- lm(train$price ~ train$Lat_diff + train$DOM + train$followers + train$communityAverage + train$HouseAge + train$square + train$floor + train$subway + train$elevator)
+# + train$elevator:train$communityAverage  (I want to use this interaction term, but this predictor is not significant so I have to delete it after multiple tests. )
+
+summary(model1)
+# summary of model1 shows that the floor and subway are not significant.
+
 ```
 
-$$y = \beta_0 + \beta_1x_1 +\beta_2x_3 +\beta_3x_3+\beta_4x_4+\beta_5x_5+\beta_6x_6+\beta_7x_7+\beta_8I_{elevator}+\beta_9I_{elevator}*x_7+\epsilon$$
 
-Step 2 Set up the ANOVA test of overall significance for predictors.
+Then, Set up the ANOVA test of overall significance for predictors.
 From the summary of model, we see a very small p-value of 2.2e-16 for our F-statistic, so by ANOVA test we may conclude that there is a significant linear relationship with the response price for at least one predictor.
 
-Step 2 do some data exploration using plots to see any patterns
-```{r}
+## EDA (explore data analysis)
+
+do some EDA plots to see any patterns (on Train data)
+
+```{r, echo = FALSE, warning = FALSE}
 
 #data exploration
 library(ggplot2)
@@ -47,45 +78,119 @@ library(ggplot2)
 # 1-1.interaction term exploration for followers:renovationCondition (a scatter plot)
 # different predictors may have interaction on each other, draw this interaction plot to see any potential interaction, if the slopes of lines are obviously different then try to consider an interaction term in your model.
 # you may want to set a baseline/reference level for your interaction term.
-p <- ggplot(df, aes(x=df$DOM, y=df$price, color=df$renovationCondition, group = df$renovationCondition)) +  # Set variables and differentiate lines by factor 'renovationCondition'
-  geom_point() +  # Add points
-  geom_smooth(method="lm", se=FALSE) +  # Add lines for each group (no shading     for confidence interval)
-  labs(title="Interaction Plot", x="followers", y="price per square")
-p
+
+# p <- ggplot(subset, aes(x=subset$DOM, y=subset$price, color=subset$renovationCondition, group = subset$renovationCondition)) +  # Set variables and differentiate lines by factor 'renovationCondition'
+#   geom_point() +  # Add points
+#   geom_smooth(method="lm", se=FALSE) +  # Add lines for each group (no shading     for confidence interval)
+#   labs(title="Interaction Plot", x="followers", y="price per square")
+# p
+
+
 #interpretation:you notice that the interaction plot has category lines in diff slopes, so there is some impact of renovation condition on followers and thus affect price.
 
-#1-2.interaction term for 
-p <- ggplot(df, aes(x=df$floor, y=df$price, color=df$elevator, group = df$elevator)) +
-  geom_point() +
-  geom_smooth(method="lm", se=FALSE) +  
-  labs(title="Interaction Plot", y="price per square")
-p
+# 1-2.interaction term for 
+# p1 <- ggplot(train, aes(x=train$floor, y=train$price, color=train$elevator, group = train$elevator)) +
+#   geom_point() +
+#   geom_smooth(method="lm", se=FALSE) +
+#   labs(title="Interaction Plot", y="price per square")
+# p1
+# 
 
+# 
+# p2 <- ggplot(train, aes(x=train$communityAverage, y=train$price, color = train$subway, group = train$subway)) +
+#   geom_point() +
+#   geom_smooth(method="lm", se=FALSE) +
+#   labs(title="Interaction effect of community average price on price per square\n under involvement of subway", y="Price per square", x = "Community average price  in CNY", color = "IF Close to Subway")
+# 
+# p2
+
+# p3 <- ggplot(train, aes(x=train$communityAverage, y=train$price, color = train$elevator, group = train$elevator)) +
+#   geom_point() +
+#   geom_smooth(method="lm", se=FALSE) +  
+#   labs(title="Interaction Plot", y="price per square", fill = "")
+# 
+# p3
+
+# p4 <- ggplot(train, aes(x=train$square, y=train$price, color = train$subway, group = train$subway)) +
+#   geom_point() +
+#   geom_smooth(method="lm", se=FALSE) +  
+#   labs(title="Interaction Plot", y="price per square")
+# 
+# p4
+
+# p5 <- ggplot(train, aes(x=train$construction_years, y=train$price, color = train$elevator, group = train$elevator)) +
+#   geom_point() +
+#   geom_smooth(method="lm", se=FALSE) +
+#   labs(title="Interaction effect of community average price on price per square\n under involvement of subway", y="Price per square", x = "Community average price  in CNY", color = "Elevator")
+# 
+# p5
+
+## 1-3. Histograms
 # a histogram of response price
-df %>% ggplot(aes(x = price)) + 
+# par(mfrow=c(1,3))
+
+plot1 <- train %>% ggplot(aes(x = price)) + 
   geom_histogram(bins = 30, fill = 'blue', color = 'black') +
   theme_minimal() +
-  labs(title = "Histogram of price per square in CNY", x = "price per square", y = "Frequency")
+  labs(title = "FigureA2. Plots of EDA", x = "price per square", y = "Frequency", caption = "(1) Histogram of price per square in train data")
+
+plot2 <- test %>% ggplot(aes(x = price)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "price per square", y = "Frequency", caption = "(2) Histogram of price per square in test data")
 
 # a histogram of latitude difference
-df %>% ggplot(aes(x = Lat_diff)) + 
+plot3 <- train %>% ggplot(aes(x = Lat_diff)) + 
   geom_histogram(bins = 30, fill = 'blue', color = 'black') +
   theme_minimal() +
-  labs(title = "Histogram of Latitude Difference", x = "Latitudes", y = "Frequency")
+  labs(x = "Latitudes", y = "Frequency", caption = "(3) Histogram of Latitude Difference (degree) in train")
 
-#a histogram of construction years
-df %>% ggplot(aes(x = construction_years)) + 
+plot4 <- test %>% ggplot(aes(x = Lat_diff)) + 
   geom_histogram(bins = 30, fill = 'blue', color = 'black') +
   theme_minimal() +
-  labs(title = "Histogram of Construction Years", x = "construction Time in years", y = "Frequency")
+  labs(x = "Latitudes", y = "Frequency", caption = "(4) Histogram of Latitude Difference (degree) in test")
 
-# 2.for interested predictors (examines linearity, constant variance by observing the feature such as skewness/spread...), uncomment them and replace with variables names.
+grid.arrange(plot1, plot2, plot3, plot4, nrow = 2, ncol=2)
 
-#draw a histogram of predictor
-#ggplot(data, aes(x = value)) + 
-  #geom_histogram(bins = 30, fill = 'blue', color = 'black') +
-  #theme_minimal() +
-  #labs(title = "Histogram of 'value'", x = "Value", y = "Frequency")
+#a histogram of construction years (house age)
+plot5 <- train %>% ggplot(aes(x = HouseAge)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "House age in years", y = "Frequency", caption = "(5) Histogram of House age in train")
+
+plot6<- test %>% ggplot(aes(x = HouseAge)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "House age in years", y = "Frequency", caption = "(6) Histogram of House age in test")
+
+# histogram of community average
+plot7<- train %>% ggplot(aes(x = communityAverage)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "community average price", y = "Frequency", caption = "(7) Histogram of Community Average Price in train")
+
+plot8 <- test %>% ggplot(aes(x = communityAverage)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "community average price", y = "Frequency", caption = "(8) Histogram of Community Average Price in test")
+
+grid.arrange(plot5, plot6, plot7, plot8, nrow = 2, ncol=2)
+
+# histogram of square
+plot9 <- train %>% ggplot(aes(x = square)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "square meters", y = "Frequency", caption = "(9) Histogram of Square in square meters in train")
+
+plot10 <- test %>% ggplot(aes(x = square)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "square meters", y = "Frequency", caption = "(10) Histogram of Square in square meters in test")
+grid.arrange(plot9, plot10, nrow=2, ncol=2)
+
+
+
+# 1-4. for interested predictors (examines linearity, constant variance by observing the feature such as skewness/spread...), uncomment them and replace with variables names.
 
 # draw a boxplot of predictors
 #ggplot(data, aes(x = category, y = value, fill = category)) +
@@ -93,52 +198,120 @@ df %>% ggplot(aes(x = construction_years)) +
   #theme_minimal() +
   #labs(title = "Boxplot of 'value' by 'category'", x = "Category", y = "Value")
 
+# draw a barplot for subway predictor
+
+plot11<- train %>% ggplot(aes(x = subway))+ geom_bar() + theme_minimal() + labs(caption = "(11) Barplot of nearby subway involevement in train")
+
+plot12 <- test %>% ggplot(aes(x = subway))+ geom_bar() + theme_minimal() + labs(caption = "(12) Barplot of nearby subway involevement in test")
+
+# draw a barplot for elevator predictor
+
+plot13 <- train %>% ggplot(aes(x = elevator))+ geom_bar() + theme_minimal() + labs(caption = "(13) Barplot of elevator installment in train")
+
+plot14 <- test %>% ggplot(aes(x = elevator))+ geom_bar() + theme_minimal() + labs(caption = "(14) Barplot of elevator installment in test")
+
+grid.arrange(plot11, plot12, plot13, plot14, nrow = 2, ncol=2)
+
 # draw a scatterplot of predictor vs response
-#ggplot(data, aes(x = xvalue, y = yvalue)) +
-  #geom_point(aes(color = category)) + 
-  #theme_minimal() +
-  #labs(title = "Scatterplot of 'yvalue' vs 'xvalue'", x = "X Value", y = "Y Value")
+plot15 <- train %>% ggplot(aes(x = floor, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "floor", y = "price per square", caption = "(15) Scatterplot of price per square and floor in train")
+
+plot16 <- test %>% ggplot(aes(x = floor, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "floor", y = "price per square", caption = "(16) Scatterplot of price per square and floor in test")
+
+plot17 <- train %>% ggplot(aes(x = DOM, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "DOM", y = "price per square", caption = "(17) Scatterplot of price per square and DOM in train") # observe non-constant variance in this graph, may apply ppower transformation.
+
+plot18 <- test %>% ggplot(aes(x = DOM, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "DOM", y = "price per square", caption = "(18) Scatterplot of price per square and DOM in test")
+
+grid.arrange(plot15, plot16, plot17, plot18, nrow = 2, ncol=2)
+
+plot19 <- train %>% ggplot(aes(x = subway, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "subway", y = "price per square", caption = "(19) Scatterplot of price per square under\n involvement of nearby subway in train")
+
+plot20 <- test %>% ggplot(aes(x = subway, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "subway", y = "price per square", caption = "(20) Scatterplot of price per square under\n involvement of nearby subway in test")
+
+plot21 <- train %>% ggplot(aes(x = elevator, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "elevator", y = "price per square", caption = "(21) Scatterplot of price per square under\n installment of elevator in train")
+
+plot22 <- test %>% ggplot(aes(x = elevator, y = price)) +
+  geom_point() + 
+  theme_minimal() +
+  labs(x = "elevator", y = "price per square", caption = "(22) Scatterplot of price per square under\n installment condition of elevator in test")
+
+grid.arrange(plot19, plot20, plot21, plot22, nrow = 2, ncol=2)
+
 ```
 
-Step 3 Assumptions Checking by residual plots
-```{r}
-#residual vs fitted
-y_hat <- fitted(model)
-e_hat <- resid(model)
-plot(x =  y_hat, y = e_hat, main="Figure1. Residual vs Fitted", xlab="Fitted values of price per square",ylab="Residuals")
 
-# residual vs construction year
-plot(x = df$construction_years, y = e_hat, main="Figure 2.Residual vs years of construction",
-     xlab="construction year", ylab="Residual")
-# residual vs other predictors
-plot(x = df$Lat_diff, y = e_hat, main="Figure 2.Residual vs Latitude Difference",
-     xlab="Latitude Difference", ylab="Residual")
+## Model Assumptions
 
-plot(x = df$DOM, y = e_hat, main="Figure 2.Residual vs Active Days on Market",
-     xlab="Active Days on Market", ylab="Residual")
-
-plot(x = df$followers, y = e_hat, main="Figure 2.Residual vs Number of Followers", xlab="Number of Followers", ylab="Residual")
-
-plot(x = df$communityAverage, y = e_hat, main="Figure 2.Residual vs Average Community House Price", xlab="Average Community House Price in CNY", ylab="Residual")
-
-plot(x = df$square, y = e_hat, main="Figure 2.Residual vs Square", xlab="Square in meter", ylab="Residual")
-
+```{r, echo = FALSE, warning = FALSE}
 # response vs fitted (check Condition1)
-plot(x =  y_hat , y = df$price   , main="",
+y_hat <- fitted(model1)
+e_hat <- resid(model1)
+plot(x =  y_hat , y = train$price , main="Response vs Fitted",
      xlab="Fitted values", ylab="price per square")
 abline(a = 0, b = 1, lty=2)
+
+#pairwise scatterplots between predictors (check Condition 2)
+pairs(train[, c(1,2,3,5,6,7,8,9,10)], main = "Pairwise scatterplots between predictors")
 
 # QQ plot
 qqnorm(e_hat, main = "Normal Q-Q Plot")
 qqline(e_hat)
 
-#pairwise scatterplots between predictors (check Condition 2)
-pairs(df[, c(2:11)], )
+#residual vs fitted
+y_hat <- fitted(model1)
+e_hat <- resid(model1)
+plot(x =  y_hat, y = e_hat, main="Residual vs Fitted", xlab="Fitted values of price per square",ylab="Residuals")
+
+
+par(mfrow=c(1,3))
+# residual vs construction year (House Age)
+plot(x = train$HouseAge, y = e_hat, main="Residual vs Predictors",
+     xlab="House age (year)", ylab="Residual")
+# residual vs other predictors
+plot(x = train$Lat_diff, y = e_hat, main="",
+     xlab="Latitude Difference", ylab="Residual")
+
+plot(x = train$DOM, y = e_hat, main="",
+     xlab="Active Days on Market", ylab="Residual")
+
+plot(x = train$followers, y = e_hat, main="", xlab="Number of Followers", ylab="Residual")
+
+plot(x = train$communityAverage, y = e_hat, main="", xlab="Average Community House Price", ylab="Residual")
+
+plot(x = train$square, y = e_hat, main="", xlab="Square in meter", ylab="Residual")
+
+plot(x = train$floor, y = e_hat, main="", xlab="Value of Floor", ylab="Residual")
+
+plot(x = train$subway, y = e_hat, main="", xlab="Subway nearby", ylab="Residual")
+
+plot(x = train$elevator, y = e_hat, main="", xlab="Elevator installment", ylab="Residual")
+
 
 ```
 
-Step 4 Box-cox Transformation
-```{r}
+
+## Box-cox Transformation
+```{r, echo = FALSE, warning = FALSE}
 # Model fix using box-cox power/log transformation
 # access the function
 packageurl <- "https://cran.r-project.org/src/contrib/Archive/pbkrtest/pbkrtest_0.4-4.tar.gz"
@@ -148,11 +321,11 @@ library(car)
 ## Loading required package: carData
 # input the model into boxCox
 # transformation on reponse price only
-boxCox(model)
+boxCox(model1)  #Figure27
 
 # input the predictor columns
-# notice we can ONLY apply transformation on numerical variables > 0, you cannot do transformation for categorical variables.
-trans <- powerTransform(cbind(df[,c(3,6,7,10,11)]))
+# notice we can ONLY apply transformation on positive numerical variables > 0, you cannot do transformation for categorical variables.
+trans <- powerTransform(cbind(train[,c(1,2,5,6,8,9)]))
 summary(trans)
 
 #now you may apply power transformation on these variables and fit a new transformed model, see Module4+5 Worksheet.
@@ -163,38 +336,382 @@ summary(trans)
 
 Step 5 Fit the new transformed model and RE-DO Step 3 to see any assumptions violated.
 ```{r}
-df$price2 <- (df$price)^(1/2)
-df$Lat_diff2 <- (df$Lat_diff)^(1/2)
-df$DOM4 <- (df$DOM)^(1/4)
-df$communityAverage3 <- (df$communityAverage)^(-1/2)
-df$floor3 <- (df$floor)^(1/3)
-#transformed_model <- lm(df$price ~ (df$predictor)^power)
+train$price2 <- (train$price)^(1/2)  #square root on y (variance stablization on response)
+train$floor3 <- (train$floor)^(1/3)   # 1/3 on floor (power box-cox on floor)
+
+# train$communityAverage3 <- (train$communityAverage)^(-1/3)
+# train$Lat_diff2 <- (train$Lat_diff)^(3/2)
+# train$DOM2 <- (log(train$DOM))
+# old_model2 <- lm(train$price2 ~ train$Lat_diff + train$DOM + train$followers + train$communityAverage + train$construction_years + train$square + train$floor3 + train$elevator+ train$floor3:train$elevator)
+
+model2 <- lm(train$price2 ~ train$Lat_diff + train$DOM + train$followers + train$communityAverage + train$HouseAge + train$square + train$floor3 + train$subway + train$elevator)
+summary(model2)
+
+# model5 <- lm(train$price2 ~ train$Lat_diff2 + train$DOM2 + train$followers + train$communityAverage3 + train$construction_years + train$square + train$floor3 + train$subway + train$elevator)
+# summary(model5)
+# model2 (transformed full model) shows that after applying the box-cox and variance stablized transformations, DOM becomes insignificant and subway is still insignificant, but floor is significant.
+
 ```
 
 
-Step 6 Deal with constant variance with Response price:
-Using the variance stablizing transformation. Treat your newly fitted model as a function of f(y),if you see any violation of constant variance such as the fanning pattern in residual plots then transform `df$price` into `log(df$price)` or `(df$price)^power ` for the model.
+Step 7 Partial F-test to deal with a reduced model for removing any non-significant predictors. If you output a relatively large p-value compared to a = 0.05, which means there is no significant linear relationship between the price per square and either one of the non-significant predictors. So these predictors can be removed and form a new model.
+```{r}
+#the transformed Full model removes DOM and subway
+model3 <- lm(train$price2 ~ train$Lat_diff + train$followers + train$communityAverage + train$HouseAge + train$square + train$floor3+ train$elevator)
+
+# model3 <- lm(train$price2 ~ train$Lat_diff2 + train$followers + train$communityAverage3 + train$construction_years + train$square + train$floor3+ train$subway + train$elevator)
+summary(model3)
+
+
+anova(model3, model2)
+# based on the output below, the p-value of F is 0.3882 > 0.05, which we fails to reject and support that DOM is not linearly significant with price, thus remove it.
+#The elecator and its interaction with floor is still non-significant.
+
+# Test some models
+# model4 <- lm(train$price2 ~ train$Lat_diff + train$communityAverage + train$construction_years + train$square + train$floor3+ train$elevator)
+# summary(model4)
+
+```
+
+## Multicolinearity (by Variance Inflation Factor VIF)
+Model1
+```{r}
+library(car)
+vif (model1)
+```
+
+Model2
+```{r}
+vif (model2)
+```
+
+Model3
+```{r}
+vif(model3)
+```
+ The VIFs are around 1 to 2 in bothh 3 models, and model3 have the general least VIF among the predictors except the one for floor and elevator.  The VIFs indicate that there exists some multicollinearity between the predictors. From the perspective of least collinearity and most number of significant predictors in the above ANOVA tests and coefficient t-tests, I recommend to use model3.
+
+## Compare the Likelihood Measures: AIC, BIC, AICc
+
+Model1
+```{r}
+p1 <- length(coef(model1)) - 1
+n <- nrow(train)
+
+cbind(summary(model1)$adj.r.squared, extractAIC(model1, k=2)[2], extractAIC(model1, k=log(n))[2], extractAIC(model1, k=2)[2] + (2*(p1+2)*(p1+3)/(n-p1-1)))
+```
+
+Model2
+```{r}
+p2 <- length(coef(model2)) - 1
+
+cbind(summary(model2)$adj.r.squared, extractAIC(model2, k=2)[2], extractAIC(model2, k=log(n))[2], extractAIC(model2, k=2)[2] + (2*(p2+2)*(p2+3)/(n-p2-1)))
+```
+
+Model3
+```{r}
+p3 <- length(coef(model3)) - 1
+
+cbind(summary(model3)$adj.r.squared, extractAIC(model3, k=2)[2], extractAIC(model3, k=log(n))[2], extractAIC(model3, k=2)[2] + (2*(p3+2)*(p3+3)/(n-p3-1)))
+```
+From the above likelihood measure results (1 = adjusted R^2, 2 = AIC, 3 = BIC, 4 = AICc), we see that model 1 has the largest adjusted R^2 and it is followed by model3, and model3 has the least adjusted R^2. However, Model3 has similar AIC, BIC and AICc with model 2 compared to the full mdoel1 and from previous summary of model3 we know that it also has the largest number of significant predictors. Therefore, model3 is the best model so far we constructed in train data.
+
+## Problematic Observations
+```{r}
+# useful values:
+n <- nrow(train)
+p <- length(coef(model3))-1
+
+# cutoffs
+# leverage cutoff
+h_cut <- 2*((p + 1)/n)
+
+# cooks cutoff
+D_cut <- qf(0.5,p, n - p - 1)
+
+# DFFITS cutoff
+fits_cut <- 2* sqrt((p+1)/n)
+
+# DFBETAS cutoff
+beta_cut <- 2/sqrt(n)
+
+#points classification
+# leverage
+h_ii <- hatvalues(model3)
+
+# outlier
+r_i <- rstandard(model3)
+
+# Cook's Distance
+D_i <- cooks.distance(model3)
+
+# DFFITS
+dffits_i <- dffits(model3)
+
+# DFBETAS
+dfbetas_i <- dfbetas(model3)
+```
+
+The problematic observations are shown in the following results.
+```{r}
+#identification
+# identify leverage points
+
+# which (h_ii>h_cut & (r_i  > 4 |  r_i   < -4) & abs(dffits_i)> fits_cut)
+which(  h_ii>h_cut  )
+```
+
 
 ```{r}
-var_stablized_model <- lm(df$price2 ~  df$Lat_diff2 + df$DOM4 + df$followers + df$communityAverage3 + df$square + df$floor3 + df$renovationCondition + df$elevator + df$construction_years + df$floor3:df$elevator)
-summary(var_stablized_model)
-
-#recheck my variance stablized transformation 
-y_hat_tran <- fitted(var_stablized_model)
-e_hat_tran <- resid(var_stablized_model)
-plot(x =  y_hat_tran, y = e_hat_tran, main="Figure1. Residual vs Fitted", xlab="Fitted values of price per square",ylab="Residuals")
-
-qqnorm(e_hat_tran, main = "Normal Q-Q Plot")
-qqline(e_hat_tran)
+# identify outliers
+which(  r_i  > 4 |  r_i   < -4)
 ```
 
 
-Step 7 Partial T-test to deal with a reduced model for removing any non-significant predictors. If you output a relatively large p-value compared to a = 0.05, which means there is no significant linear relationship between the price per square and either one of the non-significant predictors. So these predictors can be removed and form a new model.
 ```{r}
-reduced_model <- lm(df$price2 ~ df$Lat_diff2 + df$followers + df$communityAverage3 + df$square + df$floor3 + df$construction_years)
-anova(reduced_model, var_stablized_model)
-# based on the output below, the p-value of F is 0.08 > 0.05 which fails to reject the null, so the other 3 non-significant predictors: DOM, subways, and followers:renovationCondition can be removed from the model.
+# influential on all fitted values
+which(   D_i > D_cut  )
 ```
-Notes for sample Step 6-7: I only consider a 1/2 transformation on the price per square since the distribution of it is right skewed as shown by the histogram above, and I transformed 3 predictors in power in step 5. From the new residual vs fitted scatterplot, we do not see much difference.
 
-Step 8 If you have more time, please go to search some literature about your model. You may use different libraries/database.
+
+```{r}
+# influential on own fitted value
+which(  abs(dffits_i)> fits_cut )
+```
+
+
+```{r}
+# influential on a coefficient
+for(i in 1:7){
+  print(paste0("Beta ", i-1))
+  print(which(abs(dfbetas_i) > beta_cut  ))    # add your criteria here - this checks all betas in a loop
+}
+```
+
+
+## Re-check assumptions for the "best" model3
+```{r, echo = FALSE, warning = FALSE}
+# response vs fitted (check Condition1)
+y_hat <- fitted(model3)
+e_hat <- resid(model3)
+plot(x =  y_hat , y = train$price2 , main="Response vs. Fitted",
+     xlab="Fitted values", ylab="price per square")
+abline(a = 0, b = 1, lty=2)
+
+#pairwise scatterplots between predictors (check Condition 2)
+pairs(train[, c(1,3,5,8,9,10,12)], main = "Pairwise scatterplots between predictors")
+
+# QQ plot
+qqnorm(e_hat, main = "Normal Q-Q Plot")
+qqline(e_hat)
+
+#residual vs fitted
+y_hat <- fitted(model3)
+e_hat <- resid(model3)
+plot(x =  y_hat, y = e_hat, main="Residual vs Fitted", xlab="Fitted values of price per square",ylab="Residuals")
+
+
+par(mfrow=c(1,3))
+# residual vs House Age
+plot(x = train$HouseAge, y = e_hat, main="Residual vs Predictors",
+     xlab="House Age (year)", ylab="Residual")
+
+# residual vs other predictors
+plot(x = train$Lat_diff, y = e_hat, main="",
+     xlab="Latitude Difference", ylab="Residual")
+
+plot(x = train$followers, y = e_hat, main="", xlab="Number of Followers", ylab="Residual")
+
+plot(x = train$communityAverage, y = e_hat, main="", xlab="Average Community House Price in CNY", ylab="Residual")
+
+plot(x = train$square, y = e_hat, main="", xlab="Square in meter", ylab="Residual")
+
+plot(x = train$floor3, y = e_hat, main="", xlab="Value of Floor", ylab="Residual")
+
+
+plot(x = train$elevator, y = e_hat, main="", xlab="Elevator installment", ylab="Residual")
+```
+
+## Confidence Interval and Prediction Interval for mean and actual response
+
+```{r}
+# choose an interested observation to do this (eg. highest/lowest fitted value)
+
+fitted_values <- predict(model3, data = train)
+
+largest_predictvalue <- sort(fitted_values, decreasing = TRUE)[1]
+smallest_predictvalue <- sort(fitted_values, decreasing = FALSE)[1]
+
+
+#predict(model3, data = train, interval = "confidence", level = 0.95)
+
+#predict(model3, data = train, interval = "prediction", level = 0.95)
+```
+
+
+## Validation by Test data
+
+Fit the model3 on test
+```{r, echo = FALSE, warning = FALSE}
+# fit the test model3
+test$price2 <- (test$price)^(1/2)  #square root on y (variance stablization on response)
+test$floor3 <- (test$floor)^(1/3)
+test_model3 <- lm(test$price2 ~ test$Lat_diff + test$followers + test$communityAverage + test$HouseAge + test$square + test$floor3+ test$elevator)
+summary(test_model3)
+```
+
+
+```{r, echo = FALSE, warning = FALSE}
+vif(test_model3)
+```
+
+
+check the assumptions of model3 on test
+
+```{r, echo = FALSE, warning = FALSE}
+# response vs fitted (check Condition1)
+y_hat <- fitted(test_model3)
+e_hat <- resid(test_model3)
+plot(x =  y_hat , y = test$price2 , main="Response vs. Fitted",
+     xlab="Fitted values", ylab="price per square")
+abline(a = 0, b = 1, lty=2)
+
+#pairwise scatterplots between predictors (check Condition 2)
+pairs(test[, c(1,3,5,8,9,10,12)], main = "Pairwise scatterplots between predictors")
+
+# QQ plot
+qqnorm(e_hat, main = "Normal Q-Q Plot")
+qqline(e_hat)
+
+#residual vs fitted
+y_hat <- fitted(test_model3)
+e_hat <- resid(test_model3)
+plot(x =  y_hat, y = e_hat, main="Residual vs Fitted", xlab="Fitted values of price per square",ylab="Residuals")
+
+
+par(mfrow=c(1,3))
+# residual vs House Age
+plot(x = test$HouseAge, y = e_hat, main="Residual vs Predictors",
+     xlab="House Age (year)", ylab="Residual")
+# residual vs other predictors
+plot(x = test$Lat_diff, y = e_hat, main="",
+     xlab="Latitude Difference", ylab="Residual")
+
+plot(x = test$followers, y = e_hat, main="", xlab="Number of Followers", ylab="Residual")
+
+plot(x = test$communityAverage, y = e_hat, main="", xlab="Average Community House Price in CNY", ylab="Residual")
+
+plot(x = test$square, y = e_hat, main="", xlab="Square in meter", ylab="Residual")
+
+plot(x = test$floor, y = e_hat, main="", xlab="Value of Floor", ylab="Residual")
+
+plot(x = test$elevator, y = e_hat, main="", xlab="Elevator installment", ylab="Residual")
+
+```
+
+## Problematic observations for test data validation
+```{r, echo = FALSE, warning = FALSE}
+# useful values:
+n <- nrow(test)
+p <- length(coef(test_model3))-1
+
+# cutoffs
+# leverage cutoff
+h_cut <- 2*((p + 1)/n)
+
+# cooks cutoff
+D_cut <- qf(0.5,p, n - p - 1)
+
+# DFFITS cutoff
+fits_cut <- 2* sqrt((p+1)/n)
+
+# DFBETAS cutoff
+beta_cut <- 2/sqrt(n)
+
+#points classification
+# leverage
+h_ii <- hatvalues(test_model3)
+
+# outlier
+r_i <- rstandard(test_model3)
+
+# Cook's Distance
+D_i <- cooks.distance(test_model3)
+
+# DFFITS
+dffits_i <- dffits(test_model3)
+
+# DFBETAS
+dfbetas_i <- dfbetas(test_model3)
+```
+
+The problematic observations are shown in the following results.
+```{r}
+#identification
+# identify leverage points
+# which (h_ii>h_cut & (r_i  > 4 |  r_i   < -4) & abs(dffits_i)> fits_cut)
+which(  h_ii>h_cut  )
+```
+
+
+```{r}
+# identify outliers
+which(  r_i  > 4 |  r_i   < -4)
+```
+
+
+```{r}
+# influential on all fitted values
+which(   D_i > D_cut  )
+```
+
+
+```{r}
+# influential on own fitted value
+which(  abs(dffits_i)> fits_cut )
+```
+
+
+```{r}
+# influential on a coefficient
+for(i in 1:7){
+  print(paste0("Beta ", i-1))
+  print(which(abs(dfbetas_i) > beta_cut  ))    # add your criteria here - this checks all betas in a loop
+}
+```
+
+## Test Confidence Interval and Prediction Interval
+
+```{r}
+# choose an interested observation to do this (eg. highest/lowest fitted value)
+
+fitted_values <- predict(model3, data = test)
+
+largest_predictvalue <- sort(fitted_values, decreasing = TRUE)[1]
+smallest_predictvalue <- sort(fitted_values, decreasing = FALSE)[1]
+
+
+#predict(model3, data = test, interval = "confidence", level = 0.95)
+
+#predict(model3, data = test, interval = "prediction", level = 0.95)
+```
+\newpage
+
+Model1
+
+$$y = \beta_0 + \beta_1x_{lattitude \ difference} +\beta_2x_{DOM} +\beta_3x_{followers}+\beta_4x_{community\ average}+\beta_5x_{house\ age}$$
+$$+\beta_6x_{square}+\beta_7x_{floor}+\beta_8I_{subway}+\beta_9I_{elevator}+\epsilon$$
+
+Model2
+
+$$y^{1/2} = \beta_0 + \beta_1x_{lattitude \ difference} + \beta_2x_{DOM} +\beta_3x_{followers}+\beta_4x_{community\ average}+\beta_5x_{house\ age}$$
+$$+\beta_6x_{square}+\beta_7x^{1/3}_{floor}+\beta_8I_{subway}+\beta_9I_{elevator}+\epsilon$$
+
+Model3
+$$y^{1/2} = \beta_0 + \beta_1x_{lattitude \ difference} +\beta_2x_{followers}+\beta_3x_{community\ average}+\beta_4x_{house\ age}$$
+$$+\beta_5x_{square}+\beta_6x^{1/3}_{floor}+\beta_7I_{elevator}+\epsilon$$
+
+Estimated Model 3
+$$y^{1/2} = 162 -29.45x_{lattitude \ difference} -0.04914x_{followers}+0.001979x_{community\ average}-0.3842x_{house\ age}$$
+$$-0.1318x_{square}-3.493x^{1/3}_{floor}+11.24I_{elevator}+\hat{\epsilon}$$
+
