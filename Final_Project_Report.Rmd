@@ -1,0 +1,567 @@
+---
+title: "Final Project Report"
+author: "Tony Chen"
+date: "2024-03-27"
+output: pdf_document
+---
+
+## Introduction
+
+The goal of this study is to using Generalized Linear Model (GLM) for binomial response variable to predict whether or not a nearby subway route is available to adjacent residences in Beijing (the proximity of subway route to residences) in terms of essential residence information including location by relative latitude difference,area of m², house age, community average price, floor of residence, and ownership of five-year-property. With this goal, the study provides insights into the relationship between the public transportation of subway network and various patterns of housing information for better urban planning of subway network to satisfy the demand of city residents. 
+
+Previous studies have investigated the interactions between the distribution of housing price and the involvement of subway network. For example, researchers in Korean investigated the economic impacts of subway networks on the transaction prices of nearby condominium by spatial lag regression and shown that there was expected positive effect of transit accessibility on the housing price (Ahn et al., 2020). Similarly, by applying quantile regression model, another study conducted by Wen and his colleagues (2018) revealed that the proximity to subway station in terms of location significantly increases housing prices. Furthermore, another research also illustrates that house age and the price of building structures can influence prices and growth rates of prices iin Beijing, and results indicate that places where land prices faster than the structure prices, older houses exhibit higher price growth rates (Xu et al., 2018). 
+
+All of the three previous studies inform the selection of interesting variables in this study, such as housing price, house age, location by latitude difference and building structures, and they provides potential relationships between housing information and expansion of subway transit. Additionally, the price and building structure can be potential confounders that both influence the subway route proximity and other predictors based on the literature. However, they are used various models different than GLM, and the response variables are continuous variables rather than categorical variables which can be applied with logistic link function in constructing GLM models.
+
+## Methods
+
+```{r, ,echo=FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(stringr)
+library(gridExtra)
+library(knitr)
+
+## Data Cleaning
+
+
+df <- read_csv("new.csv")
+df$floor <- as.numeric(str_extract(df$floor, "[0-9.]+")) # this line eliminates the Chinese character which does not affect the "floor" number in this column.
+df$constructionTime <- as.numeric(df$constructionTime)
+df <- df %>% mutate(buildingStructure = if_else(buildingStructure %in% c(4,5,6), 1, 0))
+df <- df %>% mutate(ConcreteSteel = if_else(buildingStructure == 1, "Concrete-Steel", "Non-Concrete-Steel"))
+
+df <- df %>%mutate(elevator = if_else(elevator == 1, "With Elevator", "No Elevator"), subway = if_else(subway == 1, "Near Subway", "Not Near Subway"))
+df$price <- df$price/1000
+df$communityAverage <- df$communityAverage/1000
+df$subway <- as.factor(df$subway)
+df$elevator <- as.factor(df$elevator)
+
+df <- df %>% filter(year(tradeTime) == 2017) %>% na.omit(df) %>% filter (grepl("^[[:digit:]]+$", constructionTime))# we only focus on house traded in 2017
+
+
+
+df$ConcreteSteel <- as.factor(df$ConcreteSteel)
+df$fiveYearsProperty <- as.factor(df$fiveYearsProperty)
+
+
+df <- subset(df, square >= 90 & square <= 200) # we only investigate medium-to-large size (90-200 centimeter square) houses in Beijing
+df <- df %>% mutate(HouseAge = 2017 - constructionTime, Lat_diff = abs(Lat - 39.56)) #calculate years since construction until 2017 and difference between the city center latitude and house location latitude.
+
+
+subset <- subset(df, select = c(Lat_diff, price, square, subway, HouseAge, elevator, ConcreteSteel,floor,communityAverage, followers, DOM, fiveYearsProperty))
+
+# # split into train (learning) and test (validating) data subsets with each size n = 6148.
+# set.seed(1007822260)
+# s <- sample(1:nrow(subset), 6148, replace = FALSE)
+# train <- subset[s,]
+# test <- subset[-s,] 
+
+
+```
+
+## EDA Results
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## Summary table for continous variables
+cont <- subset(subset, select = c(Lat_diff, price, square, HouseAge, floor,communityAverage, followers, DOM))
+calculate_summary <- function(x) {
+  c(Mean = mean(x), 
+    Median = median(x), 
+    SD = sd(x), 
+    IQR = IQR(x), 
+    Range = diff(range(x)))
+}
+
+
+summary_stats <- sapply(cont, calculate_summary) %>%
+  t() %>%
+  as.data.frame()
+
+row.names(summary_stats) <- c("Latitude Difference", "Average Price", "Area", "HouseAge", "Floor", "Community Average", "Followers", "DOM")
+
+kable(summary_stats, caption = "Summary Statistics of Continuous Variables", digits = 2)
+
+## Summary table for categorical variables
+cat <- subset(subset, select = c(subway, elevator, ConcreteSteel,fiveYearsProperty))
+
+elevator_summary <- cat %>%
+  group_by(elevator) %>%
+  summarise(count = n(), proportion = n()/nrow(cat)) %>%
+  mutate(variable = "elevator") %>%
+  select(elevator, count, proportion)
+
+# response, nearyby subway available Y = 1; not nearby subway available Y = 0.
+subway_summary <- cat %>%
+  group_by(subway) %>%
+  summarise(count = n(), proportion = n()/nrow(cat)) %>%
+  mutate(variable = "subway") %>%
+  select(subway, count, proportion)
+
+subway_ConcreteSteel <- cat %>%
+  group_by(ConcreteSteel) %>%
+  summarise(count = n(), proportion = n()/nrow(cat)) %>%
+  mutate(variable = "BuildingStructure") %>%
+  select(ConcreteSteel, count, proportion)
+
+FYP_summary <- cat %>% group_by(fiveYearsProperty) %>%
+  summarise(count = n(), proportion = n()/nrow(cat)) %>%
+  mutate(variable = "FiveYearsProperty ownership") %>%
+  select(fiveYearsProperty, count, proportion)
+
+
+kable(subway_summary, caption = "Summary of Subway status", digits = 2)
+
+kable(elevator_summary, caption = "Summary of Elevator status", digits = 2)
+
+kable(subway_ConcreteSteel, caption = "Summary of Building Structure", digits = 2)
+
+kable(FYP_summary, caption = "Summary of FiveYearsProperty ownership", digits = 2)
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## EDA graphs
+
+# a histogram of latitude difference
+histogram_latdiff <- subset %>% ggplot(aes(x = Lat_diff)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "Latitudes", y = "Frequency", title = "Histogram of \nLatitude Difference (degree)")
+
+
+histogram_houseage <- subset %>% ggplot(aes(x = HouseAge)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "House age in years", y = "Frequency", title = "Histogram of House age")
+
+
+histogram_square <- subset %>% ggplot(aes(x = square)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(x = "square meters", y = "Frequency", title = "Histogram of \nArea in square meters")
+
+
+# histogram_price <- subset %>% ggplot(aes(x = price)) + 
+#   geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+#   theme_minimal() +
+#   labs(title = "Histogram of Average Price", x = "Average Price", y = "Frequency")
+
+histogram_floor <- subset %>% ggplot(aes(x = floor)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Histogram of Floor", x = "Floor", y = "Frequency")
+
+histogram_commAve <- subset %>% ggplot(aes(x = communityAverage)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Histogram of Community Average", x = "Community Average", y = "Frequency")
+
+histogram_followers <- subset %>% ggplot(aes(x = followers)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Histogram of Followers", x = "Followers", y = "Frequency")
+
+histogram_DOM <- subset %>% ggplot(aes(x = DOM)) + 
+  geom_histogram(bins = 30, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Histogram of Days active On Market", x = "DOM", y = "Frequency")
+
+grid.arrange(histogram_latdiff, histogram_houseage, histogram_square,  histogram_floor,histogram_commAve, nrow = 3,ncol = 3)
+
+## Boxplots
+subway_boxplot_house_age <- ggplot(subset, aes(x=subway, y=HouseAge, fill=subway)) + 
+  geom_boxplot() +
+  labs(title="Boxplot of House Age by \nnearby Subway route availability", x="Subway", y="House Age") +
+  theme_minimal()
+
+subway_boxplot_house_age
+
+subway_boxplot_square <- ggplot(subset, aes(x=subway, y=square, fill=subway)) + 
+  geom_boxplot() +
+  labs(title="Boxplot of area in square meter by \nnearby Subway route availability", x="Subway", y="Area") +
+  theme_minimal()
+
+subway_boxplot_square
+
+subway_boxplot_commAve <- ggplot(subset, aes(x=subway, y=communityAverage, fill=subway)) + 
+  geom_boxplot() +
+  labs(title="Boxplot of community average price by \nnearby Subway route availability", x="Subway", y="Community Average Price") +
+  theme_minimal()
+
+subway_boxplot_commAve
+
+subway_boxplot_floor <- ggplot(subset, aes(x=subway, y=floor, fill=subway)) + 
+  geom_boxplot() +
+  labs(title="Boxplot of floor by \nnearby Subway route availability", x="Subway", y="Floor") +
+  theme_minimal()
+
+subway_boxplot_floor
+
+
+
+```
+Models:
+
+$$log(\frac{P}{1-P}) = log(\frac{E(Y|x_i)}{1-E(Y|x_i)}) = \beta_0 + \beta_1x_1 + \beta_2x_2+ + \beta_3x_3 + \beta_4x_4 + \beta_5x_5 + \beta_6x_6 + \beta_7x_7 + \beta_8x_8 + \beta_9x_9 + \beta_{10}x_{10} + \beta_{11}x_{11}$$
+Final model:
+
+$$log(\frac{P}{1-P}) = log(\frac{E(Y|x_i)}{1-E(Y|x_i)}) = 3.371 + 1.62x_{Lat \ Diff} -0.004x_{Area} -0.08x_{HouseAge} -0.231x_{non-Concrete-Steel}$$ $$-0.055x_{floor}-0.029x_{communityAve price} - 0.15x_{with FYP}$$
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+# Y = 1 Near Subway, Y = 0 Not Near subway
+## Initial Logistic Model
+
+model1 <- glm(subway ~ Lat_diff + price + square + HouseAge + elevator + ConcreteSteel + floor + communityAverage + followers + DOM + fiveYearsProperty, family = binomial(link = logit), data = subset)
+coef1<-summary(model1)$coefficients
+
+knitr::kable(round(coef1,3), caption = "Model Summary")
+
+
+## Second Model by AIC
+model2 <- glm(subway ~ Lat_diff + price + square + HouseAge + elevator + ConcreteSteel + floor + communityAverage + followers + fiveYearsProperty, family = binomial(link = logit), data = subset)
+coef2<-summary(model2)$coefficients
+
+knitr::kable(round(coef2,3), caption = "Model Summary")
+
+## Third Model selected by BIC (the best model)
+model3 <- glm(subway ~ Lat_diff + square + HouseAge + ConcreteSteel + floor + communityAverage + fiveYearsProperty, family = binomial(link = logit), data = subset)
+coef3<-summary(model3)$coefficients
+knitr::kable(round(coef3,3), caption = "Model Summary")
+
+
+## Fourth Model by LASSO based on BIC
+model4<-glm(subway ~ Lat_diff + square + HouseAge + floor + communityAverage + fiveYearsProperty, family = binomial(link = logit), data = subset)
+coef4<-summary(model4)$coefficients
+knitr::kable(round(coef4,3), caption = "Model Summary")
+
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## Variable Selection
+## Stepwise AIC selection
+sel.var.aic1 <- step(model1, trace = 0, k = 2, direction = "both") 
+select_var_aic1<-attr(terms(sel.var.aic1), "term.labels")   
+select_var_aic1
+
+# DOM deleted
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## Stepwise BIC selection
+sel.var.bic1 <- step(model1, trace = 0, k = log(nrow(subset)), direction = "both") 
+select_var_bic1<-attr(terms(sel.var.bic1), "term.labels")   
+select_var_bic1
+
+```
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## LASSO
+install.packages("glmnet")
+library(glmnet)
+x = as.matrix(subset[,-4])
+y = subset$subway
+fit = glmnet(x, y, family = "binomial")
+plot(fit, xvar = "dev", label = TRUE)
+cv.out = cv.glmnet(x, y, family = "binomial", type.measure = "class", alpha = 0.5)
+plot(cv.out)
+best.lambda <- cv.out$lambda.1se
+best.lambda
+co<-coef(cv.out, s = "lambda.1se")
+co
+
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+## Dfbetas and plotting
+# Model2
+df.final <- dfbetas(model2)
+df.final
+
+
+# head(df.final)
+par(mfrow=c(1,3))
+par(family = 'serif')
+plot(subset$Lat_diff, df.final[,1], xlab='Latitude Differences', 
+     ylab='dfbeta')
+lines(lowess(subset$Lat_diff, df.final[,1]), lwd=2, col='blue')
+abline(h=0, lty='dotted')
+abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+
+plot(subset$square, df.final[,2], xlab='Area', 
+     ylab='dfbeta')
+lines(lowess(subset$square, df.final[,2]), lwd=2, col='blue')
+abline(h=0, lty='dotted')
+abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+plot(subset$HouseAge, df.final[,3], xlab='House Age', 
+     ylab='dfbeta')
+lines(lowess(subset$HouseAge, df.final[,3]), lwd=2, col='blue')
+abline(h=0, lty='dotted')
+abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+plot(subset$ConcreteSteel, df.final[,4], xlab='Concrete Steel or not', 
+     ylab='dfbeta')
+lines(lowess(subset$HouseAge, df.final[,4]), lwd=2, col='blue')
+abline(h=0, lty='dotted')
+abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+plot(subset$floor, df.final[,5], xlab='floor', 
+     ylab='dfbeta')
+lines(lowess(subset$HouseAge, df.final[,5]), lwd=2, col='blue')
+abline(h=0, lty='dotted')
+abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+plot(subset$communityAverage, df.final[,6], xlab='Community Average', 
+     ylab='dfbeta')
+lines(lowess(subset$HouseAge, df.final[,6]), lwd=2, col='blue')
+abline(h=0, lty='dotted')
+abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+plot(subset$fiveYearsProperty, df.final[,7], xlab='FiveYearsProperty ownership', 
+     ylab='dfbeta')
+lines(lowess(subset$HouseAge, df.final[,7]), lwd=2, col='blue')
+abline(h=0, lty='dotted')
+abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+# plot(subset$elevator, df.final[,5], xlab='Elevator', 
+#      ylab='dfbeta')
+# lines(lowess(subset$elevator, df.final[,5]), lwd=2, col='blue')
+# abline(h=0, lty='dotted')
+# abline(h=-2/sqrt(nrow(df.final)), lty='dotted')
+# abline(h=2/sqrt(nrow(df.final)), lty='dotted')
+
+# Model3
+```
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+library(base)
+res.dev <- residuals(model2, type = "deviance")
+
+# Cook distance (no influentials on all fitted values)
+n <- nrow(subset)
+p <- length(coef(model2))-1
+dfbeta_cutoff <- 2/sqrt(n) # 0.02
+D_cut <- qf(0.5,p, n-p-1)
+D_i <- cooks.distance(model2)
+which(   D_i > D_cut  )
+plot(model2)
+
+plot(cooks.distance(model2), main = "Cook's Distance", ylab = "cook's distance")
+abline(h = D_cut, lty = 2)
+
+# DFFITS
+dffits_i <- dffits(model2)
+fits_cut <- 2* sqrt((p+1)/n)
+# influential on own fitted value
+dffit_influential <- which(abs(dffits_i)> fits_cut )
+length(dffit_influential) # number of dffit influential
+
+# Dffits plot
+plot(dffits(model2), 
+     ylab = "Standardized DFFITs", xlab = "Index", 
+     main = paste("Standardized DFFITs"))
+abline(h = fits_cut, lty = 2)
+abline(h = fits_cut, lty = 2)
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+# Cook distance (no influentials on all fitted values)
+n <- nrow(subset)
+p <- length(coef(model3))-1
+dfbeta_cutoff <- 2/sqrt(n) # 0.02
+D_cut <- qf(0.5,p, n-p-1)
+D_i <- cooks.distance(model3)
+which(   D_i > D_cut  )
+plot(model3)
+
+plot(cooks.distance(model3), main = "Cook's Distance", ylab = "cook's distance")
+abline(h = D_cut, lty = 2)
+
+# DFFITS
+dffits_i <- dffits(model3)
+fits_cut <- 2* sqrt((p+1)/n)
+# influential on own fitted value
+dffit_influential <- which(abs(dffits_i)> fits_cut )
+length(dffit_influential) # number of dffit influential
+
+# Dffits plot
+plot(dffits(model3), 
+     ylab = "Standardized DFFITs", xlab = "Index", 
+     main = paste("Standardized DFFITs"))
+abline(h = fits_cut, lty = 2)
+abline(h = fits_cut, lty = 2)
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+# Cook distance (no influentials on all fitted values)
+n <- nrow(subset)
+p <- length(coef(model4))-1
+dfbeta_cutoff <- 2/sqrt(n) # 0.02
+D_cut <- qf(0.5,p, n-p-1)
+D_i <- cooks.distance(model4)
+which(   D_i > D_cut  )
+plot(model4)
+
+plot(cooks.distance(model4), main = "Cook's Distance", ylab = "cook's distance")
+abline(h = D_cut, lty = 2)
+
+# DFFITS
+dffits_i <- dffits(model4)
+fits_cut <- 2* sqrt((p+1)/n)
+# influential on own fitted value
+dffit_influential <- which(abs(dffits_i)> fits_cut )
+length(dffit_influential) # number of dffit influential
+
+# Dffits plot
+plot(dffits(model4), 
+     ylab = "Standardized DFFITs", xlab = "Index", 
+     main = paste("Standardized DFFITs"))
+abline(h = fits_cut, lty = 2)
+abline(h = fits_cut, lty = 2)
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+## VIF checks multicolinearity of Numerical Variables only (put numerical VIF together with results of model coeff in a table)
+install.packages("car")
+library(car)
+vif1 <- vif (model1)
+vif1
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+vif2 <- vif (model2)
+vif2
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+vif3 <- vif (model3)
+vif3
+
+```
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE, fig.height=3}
+vif5 <- vif(model4)
+vif5
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## Model Diagnostics
+## Cross-validation 1   AIC model2 (0.008)
+install.packages("rms")
+library(rms)
+lrm.first <- lrm(subway ~ ., data = subset[,which(colnames(subset) %in% c(select_var_aic1, "subway"))], x =TRUE, y = TRUE, model= T)
+cross.calib <- calibrate(lrm.first, method="crossvalidation", B=50) # model calibration
+plot(cross.calib, las=1, xlab = "Predicted Probability")
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## Cross-validation 2   BIC model3 (0.006)
+
+lrm.second <- lrm(subway ~ ., data = subset[,which(colnames(subset) %in% c(select_var_bic1, "subway"))], x =TRUE, y = TRUE, model= T)
+cross.calib <- calibrate(lrm.second, method="crossvalidation", B=50) # model calibration
+plot(cross.calib, las=1, xlab = "Predicted Probability", main = "BIC model calibration plot")
+
+# good performance, but tailling off at the left and right
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## Cross-validation 3   LASSO model4
+
+lrm.third <- lrm(subway ~ ., data = subset[,which(colnames(subset) %in% c("Lat_diff","square","HouseAge","floor","communityAverage","fiveYearsProperty", "subway"))], x =TRUE, y = TRUE, model= T)
+cross.calib <- calibrate(lrm.third, method="crossvalidation", B=50) # model calibration
+plot(cross.calib, las=1, xlab = "Predicted Probability")
+
+
+```
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## ROC Curve and AUC region model 1 by aic
+library(pROC)
+p <- predict(lrm.first, type = "fitted")
+
+roc_logit <- roc(subset$subway ~ p)
+## The True Positive Rate ##
+TPR <- roc_logit$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc_logit$specificities
+
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red')
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc_logit),2)))
+
+auc(roc_logit)
+```
+
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## ROC-AUC for model 2 (discriminate most) BIC
+p <- predict(lrm.second, type = "fitted")
+
+roc_logit <- roc(subset$subway ~ p)
+## The True Positive Rate ##
+TPR <- roc_logit$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc_logit$specificities
+
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red',main = "BIC model ROC-AUC graph")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc_logit),2)))
+
+auc(roc_logit)
+```
+
+```{r,echo=FALSE, message = FALSE, warning = FALSE}
+## ROC-AUC for model 3   LASSO
+p <- predict(lrm.third, type = "fitted")
+
+roc_logit <- roc(subset$subway ~ p)
+## The True Positive Rate ##
+TPR <- roc_logit$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc_logit$specificities
+
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red')
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc_logit),2)))
+
+auc(roc_logit)
+
+## bad AUC compared to the other, may be disregarded
+```
+
+
+# comments (deleted this)
+In methods, each model should be presented in formulae.
+
+model2 with 7 variables is best. (significance, aic/bic/lasso,influential points(dfbeta/diffts/cookdistance(outliers)),carlibration plot,roc-auc)
+describe the original dataset and the original research question & method.
+
+Five Figures/Tables: Model Summary, EDA Tables into one, Dfbetas, ROC-AUC, cross validation with calibration plot, optional(deviance residual)
+
+
+discussion of confounder in research context and should I keep them? Building structure, price per square.
+
+Appendix: VIFs of table, EDA graphs
+
+word limit: 1400 (1200) words
